@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Audio storie sociali</title>
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #111827;
+      color: white;
+      font-family: Arial, sans-serif;
+      touch-action: manipulation;
+      user-select: none;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+
+    .message {
+      max-width: 720px;
+      font-size: clamp(22px, 5vw, 42px);
+      line-height: 1.25;
+      font-weight: 700;
+    }
+
+    .sub {
+      display: block;
+      margin-top: 20px;
+      font-size: clamp(16px, 3vw, 24px);
+      font-weight: 400;
+      opacity: .85;
+    }
+
+    .corner {
+      position: fixed;
+      width: 50vw;
+      height: 50vh;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      border: 2px dashed rgba(255,255,255,.25);
+      font-size: clamp(18px, 4vw, 32px);
+      font-weight: bold;
+      text-align: center;
+      padding: 20px;
+      background: rgba(255,255,255,.03);
+    }
+
+    body.menu .corner { display: flex; }
+
+    #tl { top: 0; left: 0; }
+    #tr { top: 0; right: 0; }
+    #bl { bottom: 0; left: 0; }
+    #br { bottom: 0; right: 0; }
+
+    #startOverlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: #111827;
+      z-index: 20;
+      text-align: center;
+      padding: 30px;
+      box-sizing: border-box;
+      cursor: pointer;
+    }
+
+    #startOverlay.visible { display: flex; }
+
+    #debug {
+      position: fixed;
+      bottom: 8px;
+      left: 8px;
+      right: 8px;
+      font-size: 13px;
+      opacity: .65;
+      text-align: center;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="startOverlay">
+    <div class="message">
+      Tocca lo schermo per avviare l'esperienza audio
+      <span class="sub">Alcuni browser non permettono l'avvio automatico dell'audio.</span>
+    </div>
+  </div>
+
+  <div id="app">
+    <div class="message" id="mainText">
+      Caricamento audio...
+      <span class="sub" id="subText">Clic: pausa/riprendi. Doppio clic: ricomincia o torna al menù.</span>
+    </div>
+  </div>
+
+  <div class="corner" id="tl"></div>
+  <div class="corner" id="tr"></div>
+  <div class="corner" id="bl"></div>
+  <div class="corner" id="br"></div>
+
+  <div id="debug"></div>
+
+  <audio id="player" preload="auto" playsinline></audio>
+
+  <script>
+    // -------------------------
+    // LINK AUDIO DA GOOGLE DRIVE
+    // -------------------------
+    function drive(id) {
+      return "https://drive.google.com/uc?export=download&id=" + id;
+    }
+
+    const AUDIO = {
+      ingresso: drive("1r-tOtpf_gU6C8jPSwSqvxP34QvYY1Uwk"),
+      introStoria: drive("1AfU5EeBCxif4ISeniD2JXiuQ0xx-2qFv"),
+      chiusura: drive("1t5TVf4AK189hlOWH-ymuerAUfjUFvvwG"),
+
+      cinema: drive("1QpmouCtu8Zc8G03-EXpB3FBeHL7Cequ8"),
+      pizzeria: drive("1vdy0bT5YGPs2JLefxfJY4_uIBl1a_yra"),
+      bar: drive("17Opd-AfzStyDDuZrJ5rUMbE92n-CoNf6"),
+
+      menuSuccessivo: drive("1JMFB7Iw-tILIA_UfG8VX1EEYKzCqKCM7")
+    };
+
+    const player = document.getElementById("player");
+    const mainText = document.getElementById("mainText");
+    const subText = document.getElementById("subText");
+    const startOverlay = document.getElementById("startOverlay");
+    const debug = document.getElementById("debug");
+
+    const corners = {
+      tl: document.getElementById("tl"),
+      tr: document.getElementById("tr"),
+      bl: document.getElementById("bl"),
+      br: document.getElementById("br")
+    };
+
+    let mode = "playing"; 
+    // playing = clic singolo pausa/riprendi
+    // menu = 4 angoli attivi
+    // ended = esperienza terminata
+
+    let currentPlaylist = [];
+    let currentIndex = 0;
+    let previousMenu = "main";
+    let currentMenu = "main";
+    let clickTimer = null;
+    let lastStoryPlaylist = null;
+
+    function setDebug(text) {
+      debug.textContent = text || "";
+    }
+
+    function setText(title, subtitle = "") {
+      mainText.innerHTML = title + (subtitle ? `<span class="sub">${subtitle}</span>` : "");
+    }
+
+    function showMenu(menuName) {
+      mode = "menu";
+      currentMenu = menuName;
+      document.body.classList.add("menu");
+
+      if (menuName === "main") {
+        setText("Scegli una storia sociale", "Usa i quattro angoli dello schermo.");
+        corners.tl.textContent = "Cinema";
+        corners.tr.textContent = "Pizzeria";
+        corners.br.textContent = "Bar";
+        corners.bl.textContent = "Altre storie";
+      } else if (menuName === "afterStory") {
+        setText("La storia è terminata", "Scegli cosa fare. Doppio clic: termina l'esperienza.");
+        corners.tl.textContent = "Menù cinema, pizzeria e bar";
+        corners.tr.textContent = "Storie 4 e 5";
+        corners.br.textContent = "Storie 6 e 7";
+        corners.bl.textContent = "Riascolta questa storia";
+      } else if (menuName === "menuSuccessivo") {
+        setText("Menù successivo", "I pulsanti sono attivi, ma non tutti sono ancora collegati.");
+        corners.tl.textContent = "Non collegato";
+        corners.tr.textContent = "Non collegato";
+        corners.br.textContent = "Torna al menù precedente";
+        corners.bl.textContent = "Non collegato";
+      }
+
+      setDebug("Menù attivo: " + menuName);
+    }
+
+    function hideMenu() {
+      document.body.classList.remove("menu");
+    }
+
+    async function playPlaylist(list, options = {}) {
+      hideMenu();
+      mode = "playing";
+      currentPlaylist = list;
+      currentIndex = 0;
+      previousMenu = options.previousMenu || currentMenu || "main";
+      lastStoryPlaylist = options.rememberAsLastStory ? list : lastStoryPlaylist;
+
+      setText(options.title || "Riproduzione audio in corso", "Clic: pausa/riprendi. Doppio clic: " + (options.doubleClickAction === "menu" ? "torna al menù precedente." : "ricomincia."));
+      playCurrent();
+    }
+
+    async function playCurrent() {
+      if (!currentPlaylist.length) return;
+      player.src = currentPlaylist[currentIndex];
+      player.currentTime = 0;
+
+      try {
+        await player.play();
+        startOverlay.classList.remove("visible");
+        setDebug("Audio " + (currentIndex + 1) + " di " + currentPlaylist.length);
+      } catch (err) {
+        startOverlay.classList.add("visible");
+        setDebug("Avvio automatico bloccato: tocca lo schermo.");
+      }
+    }
+
+    player.addEventListener("ended", () => {
+      if (mode !== "playing") return;
+
+      currentIndex++;
+
+      if (currentIndex < currentPlaylist.length) {
+        playCurrent();
+      } else {
+        if (currentPlaylist.length === 1 && currentPlaylist[0] === AUDIO.ingresso) {
+          showMenu("main");
+        } else if (currentPlaylist.length === 1 && currentPlaylist[0] === AUDIO.menuSuccessivo) {
+          showMenu("menuSuccessivo");
+        } else {
+          showMenu("afterStory");
+        }
+      }
+    });
+
+    function pauseResume() {
+      if (mode !== "playing") return;
+      if (player.paused) {
+        player.play().catch(() => startOverlay.classList.add("visible"));
+      } else {
+        player.pause();
+      }
+    }
+
+    function restartCurrentAudio() {
+      if (mode !== "playing") return;
+      player.currentTime = 0;
+      player.play().catch(() => startOverlay.classList.add("visible"));
+    }
+
+    function goPreviousMenu() {
+      player.pause();
+      showMenu(previousMenu || "main");
+    }
+
+    function endExperience() {
+      player.pause();
+      hideMenu();
+      mode = "ended";
+      setText("Esperienza terminata", "Puoi chiudere questa pagina.");
+      setDebug("");
+    }
+
+    function handleDoubleClick() {
+      if (mode === "playing") {
+        // Durante ingresso e menù successivo: doppio clic = ricomincia.
+        // Durante le storie a tre audio: doppio clic = torna al menù precedente.
+        if (currentPlaylist.length === 3) {
+          goPreviousMenu();
+        } else {
+          restartCurrentAudio();
+        }
+      } else if (mode === "menu") {
+        if (currentMenu === "afterStory") {
+          endExperience();
+        }
+      }
+    }
+
+    function handleSingleClick(ev) {
+      if (mode === "playing") {
+        pauseResume();
+      }
+    }
+
+    document.body.addEventListener("click", (ev) => {
+      if (ev.target.classList.contains("corner")) return;
+
+      if (clickTimer) {
+        clearTimeout(clickTimer);
+        clickTimer = null;
+        handleDoubleClick();
+      } else {
+        clickTimer = setTimeout(() => {
+          clickTimer = null;
+          handleSingleClick(ev);
+        }, 260);
+      }
+    });
+
+    startOverlay.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      startOverlay.classList.remove("visible");
+      if (player.src) {
+        player.play().catch(() => startOverlay.classList.add("visible"));
+      } else {
+        playPlaylist([AUDIO.ingresso], { title: "Audio di ingresso", doubleClickAction: "restart" });
+      }
+    });
+
+    corners.tl.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+
+      if (currentMenu === "main") {
+        playPlaylist([AUDIO.introStoria, AUDIO.cinema, AUDIO.chiusura], {
+          title: "Storia sociale ambientata al cinema",
+          previousMenu: "main",
+          doubleClickAction: "menu",
+          rememberAsLastStory: true
+        });
+      } else if (currentMenu === "afterStory") {
+        showMenu("main");
+      }
+    });
+
+    corners.tr.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+
+      if (currentMenu === "main") {
+        playPlaylist([AUDIO.introStoria, AUDIO.pizzeria, AUDIO.chiusura], {
+          title: "Storia sociale ambientata in pizzeria",
+          previousMenu: "main",
+          doubleClickAction: "menu",
+          rememberAsLastStory: true
+        });
+      } else if (currentMenu === "afterStory") {
+        // Abilitato ma non collegato a URL per ora
+        setText("Storie 4 e 5", "Funzione abilitata, ma non ancora collegata.");
+      }
+    });
+
+    corners.br.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+
+      if (currentMenu === "main") {
+        playPlaylist([AUDIO.introStoria, AUDIO.bar, AUDIO.chiusura], {
+          title: "Storia sociale ambientata al bar",
+          previousMenu: "main",
+          doubleClickAction: "menu",
+          rememberAsLastStory: true
+        });
+      } else if (currentMenu === "afterStory") {
+        // Abilitato ma non collegato a URL per ora
+        setText("Storie 6 e 7", "Funzione abilitata, ma non ancora collegata.");
+      } else if (currentMenu === "menuSuccessivo") {
+        showMenu("main");
+      }
+    });
+
+    corners.bl.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+
+      if (currentMenu === "main") {
+        playPlaylist([AUDIO.menuSuccessivo], {
+          title: "Menù successivo",
+          previousMenu: "main",
+          doubleClickAction: "restart"
+        });
+      } else if (currentMenu === "afterStory") {
+        if (lastStoryPlaylist) {
+          playPlaylist(lastStoryPlaylist, {
+            title: "Riascolto della storia sociale",
+            previousMenu: "afterStory",
+            doubleClickAction: "menu",
+            rememberAsLastStory: true
+          });
+        }
+      }
+    });
+
+    // Avvio iniziale
+    window.addEventListener("load", () => {
+      playPlaylist([AUDIO.ingresso], {
+        title: "Audio di ingresso",
+        doubleClickAction: "restart"
+      });
+    });
+  </script>
+</body>
+</html>
